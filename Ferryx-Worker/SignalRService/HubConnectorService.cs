@@ -21,7 +21,7 @@ namespace Ferryx_Worker.SignalRService
             var builder = new Microsoft.AspNetCore.SignalR.Client.HubConnectionBuilder();
 
             _conn = builder
-                .WithUrl(_opt.HubUrl, (Microsoft.AspNetCore.Http.Connections.Client.HttpConnectionOptions o) =>
+                .WithUrl(_opt.HubUrl+"/hubs/deploy", (Microsoft.AspNetCore.Http.Connections.Client.HttpConnectionOptions o) =>
                 {
                     // Server: access_token query string'ten alıyor
                     o.AccessTokenProvider = () => Task.FromResult(_opt.Token)!;
