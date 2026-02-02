@@ -23,7 +23,7 @@ builder.Services.AddSingleton<FerryxHubOptions>(_ =>
 
     return new FerryxHubOptions(hubUrl, token, group);
 });
-
+builder.Services.AddHostedService<OperationInitializerHostedService>();
 // SignalR bağlanma servisi
 builder.Services.AddHostedService<HubConnectorService>();
 
