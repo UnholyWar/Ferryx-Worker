@@ -15,52 +15,37 @@ public sealed class OperationInitializerHostedService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var operationPath =
-            Environment.GetEnvironmentVariable("FERRYX_OPERATION_PATH")
-            ?? "/ferryx/operation/run.sh";
+        var group = Environment.GetEnvironmentVariable("FERRYX_GROUP") ?? "default";
 
-        var operationDir =
-            Path.GetDirectoryName(operationPath)
-            ?? "/ferryx/operation";
+        var opDir = Path.Combine("/ferryx/operation", group);
+        var runPath = Path.Combine(opDir, "run.sh");
 
-        // 1) Directory yoksa oluştur
-        if (!Directory.Exists(operationDir))
+        if (!Directory.Exists(opDir))
         {
-            Directory.CreateDirectory(operationDir);
-            _logger.LogInformation("[operation] directory created: {Dir}", operationDir);
+            Directory.CreateDirectory(opDir);
+            _logger.LogInformation("[operation] created: {Dir}", opDir);
         }
 
-        // 2) run.sh yoksa örnekli oluştur
-        if (!File.Exists(operationPath))
+        if (!File.Exists(runPath))
         {
             File.WriteAllText(
-                operationPath,
+                runPath,
                 """
-                #!/usr/bin/env bash
+            #!/usr/bin/env bash
 
-                echo "=== Ferryx Operation Script ==="
-                echo "Target={{ferryx_Target}}"
-                echo "Tag={{ferryx_Tag}}"
-                echo "Env={{ferryx_Env}}"
-
-                echo "Meta.test={{ferryx_Meta.test}}"
-
-                # Buraya kendi operasyonunu yaz:
-                # docker compose pull
-                # docker compose up -d
-                # curl -X POST https://webhook.example.com/deploy
-                """
+            echo "Target={{ferryx_Target}}"
+            echo "Tag={{ferryx_Tag}}"
+            echo "Env={{ferryx_Env}}"
+            echo "Meta.test={{ferryx_Meta.test}}"
+            """
             );
 
-            _logger.LogInformation("[operation] run.sh created with example placeholders: {Path}", operationPath);
-        }
-        else
-        {
-            _logger.LogInformation("[operation] run.sh exists, nothing to do");
+            _logger.LogInformation("[operation] run.sh created: {Path}", runPath);
         }
 
         return Task.CompletedTask;
     }
+
 
     public Task StopAsync(CancellationToken cancellationToken)
         => Task.CompletedTask;

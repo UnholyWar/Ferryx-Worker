@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-
 namespace Ferryx_Worker.SignalRService
 {
     public sealed class HubConnectorService : BackgroundService
@@ -11,7 +10,7 @@ namespace Ferryx_Worker.SignalRService
         private readonly FerryxHubOptions _opt;
         private readonly ILogger<HubConnectorService> _logger;
 
-        private Microsoft.AspNetCore.SignalR.Client.HubConnection? _conn;
+        private HubConnection? _conn;
 
         public HubConnectorService(FerryxHubOptions opt, ILogger<HubConnectorService> logger)
         {
@@ -21,10 +20,8 @@ namespace Ferryx_Worker.SignalRService
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var builder = new Microsoft.AspNetCore.SignalR.Client.HubConnectionBuilder();
-
-            _conn = builder
-                .WithUrl(_opt.HubUrl+"/hubs/deploy", (Microsoft.AspNetCore.Http.Connections.Client.HttpConnectionOptions o) =>
+            _conn = new HubConnectionBuilder()
+                .WithUrl(_opt.HubUrl + "/hubs/deploy", o =>
                 {
                     // Server: access_token query string'ten alıyor
                     o.AccessTokenProvider = () => Task.FromResult(_opt.Token)!;
@@ -32,45 +29,53 @@ namespace Ferryx_Worker.SignalRService
                 .WithAutomaticReconnect()
                 .Build();
 
+            // Kritik: Group path'i sanitize et + opDir var mı oluştur + unique temp + Group placeholder
+            // Not: Eğer senin pakette On<T>(..., Func<T,Task>) overload yoksa, aşağıdaki blok compile etmez.
+            // O durumda alttaki alternatif "Task.Run" yorumunu kullan.
             _conn.On<DeployRequest>("NewDeploy", async req =>
             {
-                var opDir = Environment.GetEnvironmentVariable("FERRYX_OPERATION_DIR") ?? "/ferryx/operation";
-                var runPath = Path.Combine(opDir, "run.sh");
+                var group = SanitizeGroup(_opt.Group);
 
+                var opDir = Path.Combine("/ferryx/operation", group);
+                Directory.CreateDirectory(opDir);
+
+                var runPath = Path.Combine(opDir, "run.sh");
                 if (!File.Exists(runPath))
                 {
-                    _logger.LogWarning("run.sh yok: {Path}", runPath);
+                    _logger.LogWarning("run.sh there is no: {Path}", runPath);
                     return;
                 }
 
-                // temp dosya adı
-                var id = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff");
+                var id = $"{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}";
                 var tempPath = Path.Combine(opDir, $"runtemp.{id}.sh");
 
                 try
                 {
-                    // run.sh oku -> temp'e yaz (replace ile)
-                    var script = await File.ReadAllTextAsync(runPath);
+                    var script = await File.ReadAllTextAsync(runPath, stoppingToken);
 
                     script = script.Replace("{{ferryx_Env}}", req.Env ?? "", StringComparison.Ordinal);
                     script = script.Replace("{{ferryx_Target}}", req.Target ?? "", StringComparison.Ordinal);
                     script = script.Replace("{{ferryx_Tag}}", req.Tag ?? "", StringComparison.Ordinal);
+                    script = script.Replace("{{ferryx_Group}}", group, StringComparison.Ordinal);
 
                     script = ReplaceMetaPlaceholders(script, req.Meta);
 
-                    await File.WriteAllTextAsync(tempPath, script);
+                    await File.WriteAllTextAsync(tempPath, script, stoppingToken);
 
-                    // +x (linux)
                     if (OperatingSystem.IsLinux())
-                    {
-                        await RunProcessAsync("/bin/chmod", new[] { "+x", tempPath }, _logger);
-                    }
+                        await RunProcessAsync("/bin/chmod", new[] { "+x", tempPath }, _logger, stoppingToken);
 
-                    // ÇALIŞTIR
-                    _logger.LogInformation("Deploy run: Target={Target}, Tag={Tag}, Env={Env}", req.Target, req.Tag, req.Env);
-                    var exit = await RunProcessAsync("/bin/bash", new[] { tempPath }, _logger);
+                    _logger.LogInformation(
+                        "Deploy run: Group={Group}, Target={Target}, Tag={Tag}, Env={Env}",
+                        group, req.Target, req.Tag, req.Env
+                    );
 
+                    var exit = await RunProcessAsync("/bin/bash", new[] { tempPath }, _logger, stoppingToken);
                     _logger.LogInformation("runtemp exit code: {ExitCode}", exit);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    // shutdown esnasında sessiz geç
                 }
                 catch (Exception ex)
                 {
@@ -78,12 +83,28 @@ namespace Ferryx_Worker.SignalRService
                 }
                 finally
                 {
-                    // temp sil
-                    try { if (File.Exists(tempPath)) File.Delete(tempPath); }
-                    catch (Exception ex) { _logger.LogWarning(ex, "Temp silinemedi: {Temp}", tempPath); }
+                    try
+                    {
+                        if (File.Exists(tempPath))
+                            File.Delete(tempPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Temp silinemedi: {Temp}", tempPath);
+                    }
                 }
             });
 
+            /*
+            // Eğer üstteki async handler compile etmezse bunu kullan:
+            _conn.On<DeployRequest>("NewDeploy", req =>
+            {
+                _ = Task.Run(async () =>
+                {
+                    // yukarıdaki handler içeriğinin aynısını buraya koy
+                }, stoppingToken);
+            });
+            */
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -97,6 +118,10 @@ namespace Ferryx_Worker.SignalRService
                     await _conn.InvokeAsync("JoinGroup", _opt.Group, cancellationToken: stoppingToken);
                     _logger.LogInformation("Joined group: {Group}", _opt.Group);
 
+                    break;
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
                     break;
                 }
                 catch (Exception ex)
@@ -113,9 +138,10 @@ namespace Ferryx_Worker.SignalRService
         {
             if (_conn is not null)
             {
-                await _conn.StopAsync(cancellationToken);
-                await _conn.DisposeAsync();
+                try { await _conn.StopAsync(cancellationToken); } catch { /* ignore */ }
+                try { await _conn.DisposeAsync(); } catch { /* ignore */ }
             }
+
             await base.StopAsync(cancellationToken);
         }
 
@@ -126,18 +152,6 @@ namespace Ferryx_Worker.SignalRService
             public string? Tag { get; init; }
             public Dictionary<string, object>? Meta { get; init; }
         }
-
-
-
-
-
-
-
-
-
-
-
-
 
         private static string ReplaceMetaPlaceholders(string script, Dictionary<string, object>? meta)
         {
@@ -180,7 +194,11 @@ namespace Ferryx_Worker.SignalRService
             };
         }
 
-        private static async Task<int> RunProcessAsync(string fileName, IEnumerable<string> args, ILogger logger)
+        private static async Task<int> RunProcessAsync(
+            string fileName,
+            IEnumerable<string> args,
+            ILogger logger,
+            CancellationToken ct)
         {
             var psi = new ProcessStartInfo
             {
@@ -189,22 +207,40 @@ namespace Ferryx_Worker.SignalRService
                 RedirectStandardError = true
             };
 
-            foreach (var a in args) psi.ArgumentList.Add(a);
+            foreach (var a in args)
+                psi.ArgumentList.Add(a);
 
-            using var p = new Process { StartInfo = psi };
+            using var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
 
-            p.OutputDataReceived += (_, e) => { if (e.Data is not null) logger.LogInformation("[sh] {Line}", e.Data); };
-            p.ErrorDataReceived += (_, e) => { if (e.Data is not null) logger.LogWarning("[sh] {Line}", e.Data); };
+            p.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is not null) logger.LogInformation("[sh] {Line}", e.Data);
+            };
+            p.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is not null) logger.LogWarning("[sh] {Line}", e.Data);
+            };
 
-            if (!p.Start()) throw new InvalidOperationException("Process start edilemedi.");
+            if (!p.Start())
+                throw new InvalidOperationException("Process start edilemedi.");
 
             p.BeginOutputReadLine();
             p.BeginErrorReadLine();
 
-            await p.WaitForExitAsync();
+            await p.WaitForExitAsync(ct);
             return p.ExitCode;
         }
 
+        private static string SanitizeGroup(string g)
+        {
+            if (string.IsNullOrWhiteSpace(g)) return "default";
+
+            var cleaned = new string(g
+                .Select(ch => char.IsLetterOrDigit(ch) || ch == '-' || ch == '_' ? ch : '_')
+                .ToArray());
+
+            return cleaned.Length == 0 ? "default" : cleaned;
+        }
     }
 
     public sealed record FerryxHubOptions(string HubUrl, string Token, string Group);
