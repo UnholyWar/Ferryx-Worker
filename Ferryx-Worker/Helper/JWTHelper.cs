@@ -15,7 +15,7 @@ namespace Ferryx_Worker.Helper
 
             var jwt = new JwtSecurityToken(
                 claims: new[] { new Claim("sub", "ferryx-worker") },
-                expires: DateTime.UtcNow.AddYears(1),
+                expires: DateTime.UtcNow.AddYears(10),
                 signingCredentials: creds
             );
 

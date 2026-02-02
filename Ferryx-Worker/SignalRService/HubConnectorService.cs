@@ -21,10 +21,10 @@ namespace Ferryx_Worker.SignalRService
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             var baseUrl = _opt.HubUrl.TrimEnd('/');
-            var jwt = Uri.EscapeDataString(_opt.Token);
-
+          
+         
             // DİKKAT: burada artık AccessTokenProvider'a gerek yok
-            var hubUrl = $"{baseUrl}/hubs/deploy?access_token={jwt}";
+            var hubUrl = $"{baseUrl}/hubs/deploy?access_token={_opt.JWT}";
 
             _conn = new HubConnectionBuilder()
                 .WithUrl(hubUrl)
@@ -32,9 +32,7 @@ namespace Ferryx_Worker.SignalRService
                 .Build();
 
 
-            // Kritik: Group path'i sanitize et + opDir var mı oluştur + unique temp + Group placeholder
-            // Not: Eğer senin pakette On<T>(..., Func<T,Task>) overload yoksa, aşağıdaki blok compile etmez.
-            // O durumda alttaki alternatif "Task.Run" yorumunu kullan.
+            
             _conn.On<DeployRequest>("NewDeploy", async req =>
             {
                 var group = SanitizeGroup(_opt.Group);

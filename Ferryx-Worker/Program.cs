@@ -27,7 +27,8 @@ builder.Services.AddSingleton<FerryxHubOptions>(_ =>
         ? rawToken
         : JWTHelper.CreateJwtFromKey(rawToken);
 
-    return new FerryxHubOptions(hubUrl, token, group);
+    var jwt=Uri.EscapeDataString(token);
+    return new FerryxHubOptions(hubUrl, token, group, jwt);
 
 });
 
@@ -50,4 +51,4 @@ app.MapGet("/health", () => "OK");
 app.Run();
 
 
-public sealed record FerryxHubOptions(string HubUrl, string Token, string Group);
+public sealed record FerryxHubOptions(string HubUrl, string Token, string Group, string JWT);
