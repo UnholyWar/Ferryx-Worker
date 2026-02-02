@@ -21,18 +21,22 @@ namespace Ferryx_Worker.SignalRService
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             var baseUrl = _opt.HubUrl.TrimEnd('/');
-          
-         
-            // DİKKAT: burada artık AccessTokenProvider'a gerek yok
-            var hubUrl = $"{baseUrl}/hubs/deploy?access_token={_opt.JWT}";
+
+
+            var hubUrl = $"{baseUrl}/hubs/deploy";
 
             _conn = new HubConnectionBuilder()
-                .WithUrl(hubUrl)
+                .WithUrl(hubUrl, o =>
+                {
+                    // JWT burada verilecek (encode ETME)
+                    o.AccessTokenProvider = () => Task.FromResult(_opt.Token);
+                })
                 .WithAutomaticReconnect()
                 .Build();
 
 
-            
+
+
             _conn.On<DeployRequest>("NewDeploy", async req =>
             {
                 var group = SanitizeGroup(_opt.Group);
