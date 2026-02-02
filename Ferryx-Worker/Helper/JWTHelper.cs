@@ -1,7 +1,6 @@
 ﻿using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 
 namespace Ferryx_Worker.Helper
 {
@@ -9,7 +8,9 @@ namespace Ferryx_Worker.Helper
     {
         public static string CreateJwtFromKey(string jwtKey)
         {
-            var keyBytes = Encoding.UTF8.GetBytes(jwtKey); // Hub da aynı mantıkla doğruluyor
+            // Hub artık base64 decode ile doğruluyor -> worker da base64 decode ile imzalamalı
+            var keyBytes = Convert.FromBase64String(jwtKey);
+
             var signingKey = new SymmetricSecurityKey(keyBytes);
             var creds = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
 
