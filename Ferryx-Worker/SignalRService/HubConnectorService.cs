@@ -17,17 +17,20 @@ namespace Ferryx_Worker.SignalRService
             _opt = opt;
             _logger = logger;
         }
-
+     
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            var baseUrl = _opt.HubUrl.TrimEnd('/');
+            var hubUrl = $"{baseUrl}/hubs/deploy";
+
             _conn = new HubConnectionBuilder()
-                .WithUrl(_opt.HubUrl + "/hubs/deploy", o =>
+                .WithUrl(hubUrl, o =>
                 {
-                    // Server: access_token query string'ten alıyor
-                    o.AccessTokenProvider = () => Task.FromResult(_opt.Token)!;
+                    o.AccessTokenProvider = () => Task.FromResult(_opt.Token);
                 })
                 .WithAutomaticReconnect()
                 .Build();
+
 
             // Kritik: Group path'i sanitize et + opDir var mı oluştur + unique temp + Group placeholder
             // Not: Eğer senin pakette On<T>(..., Func<T,Task>) overload yoksa, aşağıdaki blok compile etmez.
