@@ -243,5 +243,4 @@ namespace Ferryx_Worker.SignalRService
         }
     }
 
-    public sealed record FerryxHubOptions(string HubUrl, string Token, string Group);
 }
