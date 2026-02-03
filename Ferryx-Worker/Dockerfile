@@ -31,13 +31,18 @@ RUN dotnet publish "./Ferryx-Worker.csproj" \
 # Final
 FROM base AS final
 
-# 🔥 docker-cli + bash ekleniyor
 USER root
+
+# ✅ Güncel docker client (docker-ce-cli) + bash
 RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-    docker.io \
-    bash \
-    ca-certificates \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg bash \
+ && install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+ && chmod a+r /etc/apt/keyrings/docker.gpg \
+ && . /etc/os-release; echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $VERSION_CODENAME stable" \
+    > /etc/apt/sources.list.d/docker.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends docker-ce-cli \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -45,9 +50,6 @@ COPY --from=publish /app/publish .
 
 # Kestrel portu
 ENV ASPNETCORE_URLS=http://0.0.0.0:16080
-
-# (Opsiyonel) tekrar non-root’a düşmek istiyorsan:
-# USER $APP_UID
 
 # Zorunlu env kontrol + start
 ENTRYPOINT ["/bin/sh","-c", "\
