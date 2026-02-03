@@ -1,33 +1,53 @@
-# Base runtime
+ï»¿# Base runtime
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
-USER $APP_UID
 WORKDIR /app
 
-# Uygulama portu (yüksek port)
+# Uygulama portu
 EXPOSE 16080
+
 
 # Build
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+
 COPY ["Ferryx-Worker/Ferryx-Worker.csproj", "Ferryx-Worker/"]
 RUN dotnet restore "./Ferryx-Worker/Ferryx-Worker.csproj"
+
 COPY . .
 WORKDIR "/src/Ferryx-Worker"
 RUN dotnet build "./Ferryx-Worker.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
+
 # Publish
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./Ferryx-Worker.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./Ferryx-Worker.csproj" \
+    -c $BUILD_CONFIGURATION \
+    -o /app/publish \
+    /p:UseAppHost=false
+
 
 # Final
 FROM base AS final
+
+# ðŸ”¥ docker-cli + bash ekleniyor
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+    docker.io \
+    bash \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-# Kestrel portunu sabitle (istersen deðiþtirebilirsin)
+# Kestrel portu
 ENV ASPNETCORE_URLS=http://0.0.0.0:16080
+
+# (Opsiyonel) tekrar non-rootâ€™a dÃ¼ÅŸmek istiyorsan:
+# USER $APP_UID
 
 # Zorunlu env kontrol + start
 ENTRYPOINT ["/bin/sh","-c", "\
