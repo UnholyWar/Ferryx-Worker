@@ -26,15 +26,49 @@ namespace Ferryx_Worker.SignalRService
             var hubUrl = $"{baseUrl}/hubs/deploy";
 
             _conn = new HubConnectionBuilder()
-                .WithUrl(hubUrl, o =>
+               .WithUrl(hubUrl, o =>
+               {
+                   o.AccessTokenProvider = () => Task.FromResult(_opt.Token);
+               })
+               .WithAutomaticReconnect()
+               .Build();
+
+            _conn.ServerTimeout = TimeSpan.FromSeconds(60);
+            _conn.KeepAliveInterval = TimeSpan.FromSeconds(15);
+
+            _conn.Reconnected += async connectionId =>
+            {
+                _logger.LogInformation("SignalR reconnected. New ConnectionId={Id}", connectionId);
+
+                try
                 {
-                    // JWT burada verilecek (encode ETME)
-                    o.AccessTokenProvider = () => Task.FromResult(_opt.Token);
-                })
-                .WithAutomaticReconnect()
-                .Build();
+                    if (_conn is not null)
+                    {
+                        await _conn.InvokeAsync("JoinGroup", _opt.Group);
+                        _logger.LogInformation("Re-joined group after reconnect: {Group}", _opt.Group);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to re-join group after reconnect.");
+                }
+            };
 
+            _conn.Reconnecting += error =>
+            {
+                _logger.LogWarning(error, "SignalR reconnecting...");
+                return Task.CompletedTask;
+            };
 
+            _conn.Closed += error =>
+            {
+                if (error is null)
+                    _logger.LogWarning("SignalR connection closed.");
+                else
+                    _logger.LogWarning(error, "SignalR connection closed with error: {Message}", error.Message);
+
+                return Task.CompletedTask;
+            };
 
 
             _conn.On<DeployRequest>("NewDeploy", async req =>
