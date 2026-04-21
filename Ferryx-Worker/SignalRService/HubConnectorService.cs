@@ -71,79 +71,72 @@ namespace Ferryx_Worker.SignalRService
             };
 
 
-            _conn.On<DeployRequest>("NewDeploy", async req =>
-            {
-                var group = SanitizeGroup(_opt.Group);
-
-                var opDir = Path.Combine("/ferryx/operation", group);
-                Directory.CreateDirectory(opDir);
-
-                var runPath = Path.Combine(opDir, "run.sh");
-                if (!File.Exists(runPath))
-                {
-                    _logger.LogWarning("run.sh there is no: {Path}", runPath);
-                    return;
-                }
-
-                var id = $"{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}";
-                var tempPath = Path.Combine(opDir, $"runtemp.{id}.sh");
-
-                try
-                {
-                    var script = await File.ReadAllTextAsync(runPath, stoppingToken);
-
-                    script = script.Replace("{{ferryx_Env}}", req.Env ?? "", StringComparison.Ordinal);
-                    script = script.Replace("{{ferryx_Target}}", req.Target ?? "", StringComparison.Ordinal);
-                    script = script.Replace("{{ferryx_Tag}}", req.Tag ?? "", StringComparison.Ordinal);
-                    script = script.Replace("{{ferryx_Group}}", group, StringComparison.Ordinal);
-
-                    script = ReplaceMetaPlaceholders(script, req.Meta);
-
-                    await File.WriteAllTextAsync(tempPath, script, stoppingToken);
-
-                    if (OperatingSystem.IsLinux())
-                        await RunProcessAsync("/bin/chmod", new[] { "+x", tempPath }, _logger, stoppingToken);
-
-                    _logger.LogInformation(
-                        "Deploy run: Group={Group}, Target={Target}, Tag={Tag}, Env={Env}",
-                        group, req.Target, req.Tag, req.Env
-                    );
-
-                    var exit = await RunProcessAsync("/bin/bash", new[] { tempPath }, _logger, stoppingToken);
-                    _logger.LogInformation("runtemp exit code: {ExitCode}", exit);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    // shutdown esnasında sessiz geç
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "NewDeploy run failed");
-                }
-                finally
-                {
-                    try
-                    {
-                        if (File.Exists(tempPath))
-                            File.Delete(tempPath);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Temp silinemedi: {Temp}", tempPath);
-                    }
-                }
-            });
-
-            /*
-            // Eğer üstteki async handler compile etmezse bunu kullan:
             _conn.On<DeployRequest>("NewDeploy", req =>
             {
                 _ = Task.Run(async () =>
                 {
-                    // yukarıdaki handler içeriğinin aynısını buraya koy
+                    var group = SanitizeGroup(_opt.Group);
+
+                    var opDir = Path.Combine("/ferryx/operation", group);
+                    Directory.CreateDirectory(opDir);
+
+                    var runPath = Path.Combine(opDir, "run.sh");
+                    if (!File.Exists(runPath))
+                    {
+                        _logger.LogWarning("run.sh there is no: {Path}", runPath);
+                        return;
+                    }
+
+                    var id = $"{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}";
+                    var tempPath = Path.Combine(opDir, $"runtemp.{id}.sh");
+
+                    try
+                    {
+                        var script = await File.ReadAllTextAsync(runPath, stoppingToken);
+
+                        script = script.Replace("{{ferryx_Env}}", req.Env ?? "", StringComparison.Ordinal);
+                        script = script.Replace("{{ferryx_Target}}", req.Target ?? "", StringComparison.Ordinal);
+                        script = script.Replace("{{ferryx_Tag}}", req.Tag ?? "", StringComparison.Ordinal);
+                        script = script.Replace("{{ferryx_Group}}", group, StringComparison.Ordinal);
+
+                        script = ReplaceMetaPlaceholders(script, req.Meta);
+
+                        await File.WriteAllTextAsync(tempPath, script, stoppingToken);
+
+                        if (OperatingSystem.IsLinux())
+                            await RunProcessAsync("/bin/chmod", new[] { "+x", tempPath }, _logger, stoppingToken);
+
+                        _logger.LogInformation(
+                            "Deploy run: Group={Group}, Target={Target}, Tag={Tag}, Env={Env}",
+                            group, req.Target, req.Tag, req.Env
+                        );
+
+                        var exit = await RunProcessAsync("/bin/bash", new[] { tempPath }, _logger, stoppingToken);
+                        _logger.LogInformation("runtemp exit code: {ExitCode}", exit);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "NewDeploy run failed");
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (File.Exists(tempPath))
+                                File.Delete(tempPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Temp silinemedi: {Temp}", tempPath);
+                        }
+                    }
                 }, stoppingToken);
             });
-            */
+
+          
 
             while (!stoppingToken.IsCancellationRequested)
             {
